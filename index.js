@@ -1,92 +1,117 @@
 const express = require("express");
 const app = express();
-const cors = require('cors')
-app.use(cors())
-app.use(express.static('dist'))
+require("dotenv").config();
 
-let notes = [
-  {
-    id: 1,
-    content: "HTML is easy",
-    importtant: true,
-  },
-  {
-    id: 2,
-    content: "Browser can execute only JavaScript",
-    importtant: false,
-  },
-  {
-    id: 3,
-    content: "GET and POST are the most important methods of HTTP protocol",
-    importtant: true,
-  },
-];
+const Note = require("./models/note");
 
-const requestLogger = (req, res, next) => {
-    console.log('Mehod: ', req.method)
-    console.log('Path: ', req.path)
-    console.log('Body: ', req.body)
-    console.log('---')
-    next()
-}
+let notes = [];
 
-app.use(express.json())
-app.use(requestLogger)
+app.use(express.static("dist"));
 
-const unknownEndPoint = (req, res) => {
-    res.status(400).send({
-        error: "unknown end point"
-    })
-}
-
-
-//add new resource
-const generateId = () => {
-  const maxId = notes.length > 0 ? Math.max(...notes.map((n) => n.id)) : 0;
-  return maxId + 1;
+const requestLogger = (request, response, next) => {
+  console.log("Method:", request.method);
+  console.log("Path:  ", request.path);
+  console.log("Body:  ", request.body);
+  console.log("---");
+  next();
 };
 
-app.post("/api/notes", (req, res) => {
-  const body = req.body;
-  if (!body.content) {
-    return res.status(400).json({
-      error: "content is missing",
-    });
+const cors = require("cors");
+
+app.use(cors());
+
+app.use(express.json());
+app.use(requestLogger);
+
+const unknownEndpoint = (request, response) => {
+  response.status(404).send({ error: "unknown endpoint" });
+};
+
+const errorHandler = (error, request, response, next) => {
+  console.log(error.message);
+
+  if (error.name === "CastError") {
+    return response.status(400).send({ error: "malformatted id" });
+  } else if (error.name === "ValidationError") {
+    return response.status(400).json({ error: error.message });
   }
-  const note = {
-    id: generateId(),
+
+  next(error);
+};
+
+app.get("/", (request, response) => {
+  response.send("<h1>Hello World!</h1>");
+});
+
+//get all notes
+app.get("/api/notes", (request, response) => {
+  Note.find({}).then((notes) => {
+    response.json(notes);
+  });
+});
+
+//add a note
+app.post("/api/notes", (request, response, next) => {
+  const body = request.body;
+
+  if (body.content === undefined) {
+    return response.status(400).json({ error: "content missing" });
+  }
+
+  const note = new Note({
     content: body.content,
-    important: Boolean(body.important) || false,
-  };
-  notes = notes.concat(note);
-  res.json(note);
+    important: body.important || false,
+  });
+
+  note
+    .save()
+    .then((savedNote) => {
+      response.json(savedNote);
+    })
+    .catch((error) => next(error));
 });
 
-//fetching collection
-app.get("/api/notes", (req, res) => {
-  res.json(notes);
+//get single note
+app.get("/api/notes/:id", (request, response, next) => {
+  Note.findById(request.params.id)
+    .then((note) => {
+      if (note) {
+        response.json(note);
+      } else {
+        response.status(404).end();
+      }
+    })
+    .catch((error) => next(error));
 });
 
-//fetching single resource
-app.get("/api/notes/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const note = notes.find((n) => n.id === id);
-  if (note) {
-    res.json(note);
-  } else {
-    res.status(400).end();
-  }
+//delete note
+app.delete("/api/notes/:id", (request, response) => {
+  Note.findByIdAndDelete(request.params.id)
+    .then((result) => {
+      response.status(204).end();
+    })
+    .catch((error) => next(error));
 });
 
-//deleting a resource
-app.delete("/api/notes/:id", (req, res) => {
-  const id = Number(req.params.id);
-  notes = notes.filter((n) => n.id !== id);
-  res.status(204).end();
+//update note
+app.put("/api/notes/:id", (request, response) => {
+  const { content, important } = request.body;
+
+  Note.findByIdAndUpdate(
+    request.params.id,
+    { content, important },
+    { new: true, runValidators: true, context: "query" }
+  )
+    .then((updatedNote) => {
+      response.json(updatedNote);
+    })
+    .catch((error) => next(error));
 });
 
-const PORT = process.env.PORT ||  3001;
+app.use(unknownEndpoint);
+app.use(errorHandler);
 
+const PORT = process.env.PORT;
 app.listen(PORT, () => {
-  console.log(`Server started running at port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });

@@ -39,9 +39,6 @@ const unknownEndPoint = (req, res) => {
     })
 }
 
-app.get("/", (req, res) => {
-  res.send("<h1>This is home page</h1>");
-});
 
 //add new resource
 const generateId = () => {
